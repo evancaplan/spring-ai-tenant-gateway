@@ -1,0 +1,47 @@
+### Test tenant resolution
+POST http://localhost:8080/api/v1/ai/chat
+Content-Type: application/json
+X-Tenant-Id: acme
+X-Team-Id: engineering
+
+{}
+
+<> 2026-03-19T202811.200.txt
+###
+
+### Hit it 11 times fast to trigger rate limit
+POST http://localhost:8080/api/v1/ai/chat
+Content-Type: application/json
+X-Tenant-Id: acme
+X-Team-Id: engineering
+
+{}
+
+### Real LLM call
+POST http://localhost:8080/api/v1/ai/chat
+Content-Type: application/json
+X-Tenant-Id: acme
+X-Team-Id: engineering
+
+{
+  "messages": [
+    { "role": "user", "content": "What is a large language model in one sentence?" }
+  ],
+  "model": "gpt-4o-mini"
+}
+
+### Check request counter
+GET http://localhost:8080/actuator/metrics/ai.requests.total
+
+### Check latency histogram
+GET http://localhost:8080/actuator/metrics/ai.request.latency
+
+### Check  rejected counter
+GET http://localhost:8080/actuator/metrics/ai.requests.rejected
+
+### acme gets 20 req/min (overridden)
+GET http://localhost:8080/api/v1/tenants/acme/usage
+
+###
+### trial gets only 3 req/min
+GET http://localhost:8080/api/v1/tenants/trial/usage
