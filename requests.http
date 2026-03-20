@@ -42,6 +42,24 @@ GET http://localhost:8080/actuator/metrics/ai.requests.rejected
 ### acme gets 20 req/min (overridden)
 GET http://localhost:8080/api/v1/tenants/acme/usage
 
-###
 ### trial gets only 3 req/min
 GET http://localhost:8080/api/v1/tenants/trial/usage
+
+### get a token from local auth server
+POST http://localhost:8080/oauth2/token
+Authorization: Basic dGVuYW50LWdhdGV3YXktY2xpZW50OnNlY3JldA==
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=client_credentials
+
+### use token to call chat endpoint
+POST http://localhost:8080/api/v1/ai/chat
+Content-Type: application/json
+Authorization: Bearer eyJraWQiOiJiMWM1ZGYwNi0zMmI5LTQ3ZDUtODU2OS02YTg2MWY1NTdmOTciLCJhbGciOiJSUzI1NiJ9.eyJ0ZW5hbnRfaWQiOiJhY21lIiwic3ViIjoidGVuYW50LWdhdGV3YXktY2xpZW50IiwiYXVkIjoidGVuYW50LWdhdGV3YXktY2xpZW50IiwibmJmIjoxNzc0MDQ4MzA0LCJpc3MiOiJodHRwOi8vbG9jYWxob3N0OjgwODAiLCJ0ZWFtX2lkIjoiZW5naW5lZXJpbmciLCJleHAiOjE3NzQwNTE5MDQsImlhdCI6MTc3NDA0ODMwNCwianRpIjoiYTE2NDMwYjQtMzg5Yi00YjZkLTk4ZDktZTA4N2RjY2ExZjhhIn0.Jq1S920ajcX7Eln17GrxDUQOzZUBE0U_j87u0p2LDaue2MKm4orOrv7Wb7ER07ON_DLlRBuPJ0gfKNeqVCW0z3udFxxraoNBDbdRmRvurY1t5dacqLsCMcUlbW7VG8l3hd38jHZN8-SWDsx9kOlcwCfbxdGM0wwmbFSC8DH6cNG7nYoP2XCPqam2ZOcNToOmsCNe8ADHdJ76zTYOm92pYVK23b_2nJv8HVZh6KvU2_eeEm5jeQIfmzHrYsDaGYjDJJgf2qwCO1bw9yS-eJc0ykge-6KEJC4O_JS4iVft7TydYzLKvsiz3do5lGmAxNzm-mM6a1-ccAEGm5f2kvU_gA
+
+{
+  "messages": [
+    { "role": "user", "content": "Say hello" }
+  ],
+  "model": "gpt-4o-mini"
+}
