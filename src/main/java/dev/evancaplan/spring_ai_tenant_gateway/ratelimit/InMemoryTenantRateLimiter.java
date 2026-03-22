@@ -2,13 +2,10 @@ package dev.evancaplan.spring_ai_tenant_gateway.ratelimit;
 
 import dev.evancaplan.spring_ai_tenant_gateway.config.TenantGatewayConfigurationProperties;
 import dev.evancaplan.spring_ai_tenant_gateway.tenant.TenantContext;
-import org.springframework.stereotype.Component;
-
 import java.time.Instant;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
-@Component
 public class InMemoryTenantRateLimiter implements TenantRateLimiter {
 
     private final TenantGatewayConfigurationProperties properties;
@@ -22,16 +19,29 @@ public class InMemoryTenantRateLimiter implements TenantRateLimiter {
     @Override
     public RateLimitDecision checkAndConsume(TenantContext context, int estimatedTokens) {
         String tenantId = context.tenantId();
+        int tokensToConsume = Math.max(0, estimatedTokens);
         TenantGatewayConfigurationProperties.TenantLimits limits = properties.limitsFor(tenantId);
 
-        WindowCounter requests = requestCounters.computeIfAbsent(tenantId, k -> new WindowCounter(60, limits.getMaxRequestsPerMinute()));
+        WindowCounter requests = requestCounters.computeIfAbsent(
+                tenantId,
+                k -> new WindowCounter(RateLimitDefaults.REQUEST_WINDOW_SECONDS, limits.getMaxRequestsPerMinute())
+        );
         if (!requests.tryConsume(1)) {
-            return RateLimitDecision.deny("rate_limit_exceeded: too many requests per minute", 30);
+            return RateLimitDecision.deny(
+                    RateLimitDefaults.RATE_LIMIT_EXCEEDED_REASON,
+                    RateLimitDefaults.REQUEST_RETRY_AFTER_SECONDS
+            );
         }
 
-        WindowCounter tokens = tokenCounters.computeIfAbsent(tenantId, k -> new WindowCounter(86_400, limits.getMaxTokensPerDay()));
-        if (!tokens.tryConsume(estimatedTokens)) {
-            return RateLimitDecision.deny("quota_exceeded: daily token limit reached", 3600);
+        WindowCounter tokens = tokenCounters.computeIfAbsent(
+                tenantId,
+                k -> new WindowCounter(RateLimitDefaults.TOKEN_WINDOW_SECONDS, limits.getMaxTokensPerDay())
+        );
+        if (!tokens.tryConsume(tokensToConsume)) {
+            return RateLimitDecision.deny(
+                    RateLimitDefaults.QUOTA_EXCEEDED_REASON,
+                    RateLimitDefaults.TOKEN_RETRY_AFTER_SECONDS
+            );
         }
 
         return RateLimitDecision.permit();
@@ -40,14 +50,14 @@ public class InMemoryTenantRateLimiter implements TenantRateLimiter {
     @Override
     public TenantUsageSnapshot getUsage(String tenantId) {
         TenantGatewayConfigurationProperties.TenantLimits limits = properties.limitsFor(tenantId);
-        WindowCounter requests = requestCounters.getOrDefault(tenantId, new WindowCounter(60, limits.getMaxRequestsPerMinute()));
-        WindowCounter tokens = tokenCounters.getOrDefault(tenantId, new WindowCounter(86_400, limits.getMaxTokensPerDay()));
+        WindowCounter requests = requestCounters.get(tenantId);
+        WindowCounter tokens = tokenCounters.get(tenantId);
 
         return new TenantUsageSnapshot(
                 tenantId,
-                requests.count.get(),
+                requests != null ? requests.getCount() : 0,
                 limits.getMaxRequestsPerMinute(),
-                tokens.count.get(),
+                tokens != null ? tokens.getCount() : 0,
                 limits.getMaxTokensPerDay()
         );
     }
@@ -63,20 +73,27 @@ public class InMemoryTenantRateLimiter implements TenantRateLimiter {
             this.limit = limit;
         }
 
-        boolean tryConsume(int amount) {
+        synchronized boolean tryConsume(int amount) {
             maybeReset();
             int current = count.get();
-            if (current + amount > limit) return false;
+            if ((long) current + amount > limit) {
+                return false;
+            }
             count.addAndGet(amount);
             return true;
         }
 
         private void maybeReset() {
             Instant now = Instant.now();
-            if (now.isAfter(windowStart.plusSeconds(windowSeconds))) {
+            if (!now.isBefore(windowStart.plusSeconds(windowSeconds))) {
                 count.set(0);
                 windowStart = now;
             }
+        }
+
+        int getCount() {
+            maybeReset();
+            return count.get();
         }
     }
 }

@@ -25,13 +25,10 @@ public class TenantResolverFilter extends OncePerRequestFilter {
                                     FilterChain filterChain)
             throws ServletException, IOException {
         try {
-            Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-
             TenantContext context = switch (properties.getAuthType()) {
                 case JWT -> resolveFromJwt();
                 case HEADER -> resolveFromHeaders(request);
             };
-
 
             if (context != null) {
                 TenantContextHolder.set(context);
