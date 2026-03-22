@@ -4,8 +4,8 @@ import dev.evancaplan.spring_ai_tenant_gateway.tenant.TenantResolverFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
+import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
-import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
@@ -15,6 +15,11 @@ public class SecurityConfig {
 
     public SecurityConfig(TenantGatewayConfigurationProperties properties) {
         this.properties = properties;
+    }
+
+    @Bean
+    public TenantResolverFilter tenantResolverFilter() {
+        return new TenantResolverFilter(properties);
     }
 
     @Bean
@@ -28,20 +33,17 @@ public class SecurityConfig {
                             .requestMatchers("/actuator/**").permitAll()
                             .anyRequest().authenticated()
                     )
-                    .oauth2ResourceServer(oauth2 -> oauth2
-                            .jwt(jwt -> jwt.jwkSetUri("http://localhost:8080/oauth2/jwks"))
-                    );
+                    .oauth2ResourceServer(oauth2 -> oauth2.jwt(Customizer.withDefaults()));
 
             case HEADER -> http
                     .authorizeHttpRequests(auth -> auth.anyRequest().permitAll());
         }
 
         http.addFilterAfter(
-                new TenantResolverFilter(properties),
-                BearerTokenAuthenticationFilter.class
+                tenantResolverFilter(),
+                UsernamePasswordAuthenticationFilter.class
         );
 
         return http.build();
     }
 }
-

@@ -28,16 +28,23 @@ public class CaffeineTenantRateLimiter implements TenantRateLimiter {
     @Override
     public RateLimitDecision checkAndConsume(TenantContext context, int estimatedTokens) {
         String tenantId = context.tenantId();
+        int tokensToConsume = Math.max(0, estimatedTokens);
         TenantGatewayConfigurationProperties.TenantLimits limits = properties.limitsFor(tenantId);
 
         AtomicInteger requests = requestCache.get(tenantId, k -> new AtomicInteger(0));
-        if (requests.incrementAndGet() > limits.getMaxRequestsPerMinute()) {
-            return RateLimitDecision.deny("rate_limit_exceeded: too many requests per minute", 30);
+        if (!tryConsume(requests, 1, limits.getMaxRequestsPerMinute())) {
+            return RateLimitDecision.deny(
+                    RateLimitDefaults.RATE_LIMIT_EXCEEDED_REASON,
+                    RateLimitDefaults.REQUEST_RETRY_AFTER_SECONDS
+            );
         }
 
         AtomicInteger tokens = tokenCache.get(tenantId, k -> new AtomicInteger(0));
-        if (tokens.addAndGet(estimatedTokens) > limits.getMaxTokensPerDay()) {
-            return RateLimitDecision.deny("quota_exceeded: daily token limit reached", 3600);
+        if (!tryConsume(tokens, tokensToConsume, limits.getMaxTokensPerDay())) {
+            return RateLimitDecision.deny(
+                    RateLimitDefaults.QUOTA_EXCEEDED_REASON,
+                    RateLimitDefaults.TOKEN_RETRY_AFTER_SECONDS
+            );
         }
 
         return RateLimitDecision.permit();
@@ -57,6 +64,18 @@ public class CaffeineTenantRateLimiter implements TenantRateLimiter {
                 tokens != null ? tokens.get() : 0,
                 limits.getMaxTokensPerDay()
         );
+    }
+
+    private boolean tryConsume(AtomicInteger counter, int amount, int limit) {
+        while (true) {
+            int current = counter.get();
+            if ((long) current + amount > limit) {
+                return false;
+            }
+            if (counter.compareAndSet(current, current + amount)) {
+                return true;
+            }
+        }
     }
 
 }
