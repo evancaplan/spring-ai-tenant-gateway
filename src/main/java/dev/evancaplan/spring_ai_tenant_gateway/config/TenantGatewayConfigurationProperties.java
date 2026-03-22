@@ -1,5 +1,6 @@
 package dev.evancaplan.spring_ai_tenant_gateway.config;
 
+import dev.evancaplan.spring_ai_tenant_gateway.ratelimit.RateLimitStrategy;
 import dev.evancaplan.spring_ai_tenant_gateway.tenant.AuthType;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
@@ -18,6 +19,7 @@ public class TenantGatewayConfigurationProperties {
     private String teamIdHeader = "X-Team-Id";
 
     private AuthType authType = AuthType.HEADER;
+    private RateLimitStrategy rateLimitStrategy = RateLimitStrategy.CAFFEINE;
 
     private Map<String, TenantLimits> tenants = new HashMap<>();
 
@@ -82,6 +84,14 @@ public class TenantGatewayConfigurationProperties {
 
     public void setTeamIdHeader(String teamIdHeader) {
         this.teamIdHeader = teamIdHeader;
+    }
+
+    public RateLimitStrategy getRateLimitStrategy() {
+        return rateLimitStrategy;
+    }
+
+    public void setRateLimitStrategy(RateLimitStrategy rateLimitStrategy) {
+        this.rateLimitStrategy = rateLimitStrategy;
     }
 
     public static class TenantLimits {
