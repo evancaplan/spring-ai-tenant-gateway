@@ -1,93 +1,110 @@
 # spring-ai-tenant-gateway
 
-A Spring Boot starter that adds per-tenant rate limiting, quota enforcement, and observability to any Spring AI-powered API.
+Spring Boot gateway service for multi-tenant AI chat APIs with:
 
-Built for platform and infrastructure teams who need to expose LLM-backed endpoints to multiple tenants with configurable limits, structured logging, and Micrometer metrics out of the box.
+- Tenant resolution via `HEADER` or `JWT`
+- Per-tenant request-rate and token-quota enforcement
+- Pluggable rate limiting backend (`IN_MEMORY`, `CAFFEINE`, `REDIS`)
+- Actuator + Micrometer metrics
+- Tenant usage endpoint
 
----
+## What It Exposes
 
-## Features
+- `POST /api/v1/ai/chat`
+- `GET /api/v1/tenants/{tenantId}/usage`
+- Actuator metrics (when exposed): `/actuator/metrics/**`
 
-- Multi-tenant request resolution via JWT claims or headers
-- Per-tenant rate limiting (requests per minute)
-- Per-tenant token quota (tokens per day)
-- YAML-configurable limits with per-tenant overrides
-- Spring AI provider abstraction (OpenAI, Bedrock, and others)
-- Structured logging per request (tenant, model, latency, outcome)
-- Micrometer metrics tagged by tenant, model, and outcome
-- Usage snapshot endpoint per tenant
-- 429 responses with retry hints on limit exceeded
+## Core Features
 
----
+- Tenant context from headers or JWT claims
+- Request validation and token estimation
+- Per-tenant limits:
+  - requests/minute
+  - tokens/day
+- 429 responses with retry hints:
+  - `rate_limit_exceeded: too many requests per minute`
+  - `quota_exceeded: daily token limit reached`
+- Structured logs with tenant/model/latency/outcome
+- Metrics:
+  - `ai.requests.total` (`tenantId`, `model`, `outcome`)
+  - `ai.request.latency` (`tenantId`, `model`)
+  - `ai.requests.rejected` (`tenantId`, `reason`)
 
-## Quick Start
+## Configuration
 
-### 1. Add the dependency
-
-```xml
-<dependency>
-    <groupId>dev.evancaplan</groupId>
-    <artifactId>spring-ai-tenant-gateway</artifactId>
-    <version>0.0.1-SNAPSHOT</version>
-</dependency>
-```
-
-### 2. Configure limits in `application.properties`
+### Required/Typical
 
 ```properties
-# Default limits for all tenants
+spring.ai.openai.api-key=${OPENAI_API_KEY}
+spring.ai.openai.chat.options.model=gpt-4o-mini
+management.endpoints.web.exposure.include=health,metrics
+```
+
+### Tenant Gateway
+
+```properties
+# auth mode: HEADER or JWT (default in properties class: HEADER)
+ai.tenant.gateway.auth-type=HEADER
+
+# rate limiter: IN_MEMORY, CAFFEINE, REDIS (default: CAFFEINE)
+ai.tenant.gateway.rate-limit-strategy=CAFFEINE
+
+# defaults for all tenants
 ai.tenant.gateway.default-max-requests-per-minute=10
 ai.tenant.gateway.default-max-tokens-per-day=100000
 
-# Per-tenant overrides
+# per-tenant overrides
 ai.tenant.gateway.tenants.acme.max-requests-per-minute=20
 ai.tenant.gateway.tenants.acme.max-tokens-per-day=200000
-
 ai.tenant.gateway.tenants.trial.max-requests-per-minute=3
 ai.tenant.gateway.tenants.trial.max-tokens-per-day=10000
 
-# Spring AI provider
-spring.ai.openai.api-key=${OPENAI_API_KEY}
-spring.ai.openai.chat.options.model=gpt-4o-mini
+# header mode keys
+ai.tenant.gateway.tenant-id-header=X-Tenant-Id
+ai.tenant.gateway.team-id-header=X-Team-Id
+
+# jwt mode claim names
+ai.tenant.gateway.tenant-id-jwt-claim=tenant_id
+ai.tenant.gateway.team-id-jwt-claim=team_id
 ```
 
-### 3. Identify your tenant
+### JWT Mode
 
-Pass tenant identity via headers (JWT support coming in v2):
+When using `ai.tenant.gateway.auth-type=JWT`, configure resource server JWT verification:
 
+```properties
+spring.security.oauth2.resourceserver.jwt.jwk-set-uri=http://localhost:8080/oauth2/jwks
 ```
-X-Tenant-Id: acme
-X-Team-Id: engineering
-```
 
----
+This project also includes Spring Authorization Server config for local flows (`/oauth2/token`, `/oauth2/jwks`).
 
-## API
+## API Examples
 
-### `POST /api/v1/ai/chat`
+### Chat
 
-Send a chat request on behalf of a tenant.
+Request:
 
-**Request**
 ```json
 {
   "messages": [
-    { "role": "user", "content": "What is a large language model?" }
+    { "role": "user", "content": "Hello" }
   ],
   "model": "gpt-4o-mini"
 }
 ```
 
-**Response 200**
+Successful response:
+
 ```json
 {
-  "content": "A large language model is...",
+  "content": "Hello",
   "tenantId": "acme",
-  "latencyMs": 1903
+  "latencyMs": 50
 }
 ```
 
-**Response 429 (rate limit exceeded)**
+Rate-limited response:
+
 ```json
 {
   "error": "rate_limit_exceeded: too many requests per minute",
@@ -95,13 +112,10 @@ Send a chat request on behalf of a tenant.
 }
 ```
 
----
+### Usage
 
-### `GET /api/v1/tenants/{tenantId}/usage`
+`GET /api/v1/tenants/acme/usage`
 
-Get current usage snapshot for a tenant.
-
-**Response 200**
 ```json
 {
   "tenantId": "acme",
@@ -112,97 +126,28 @@ Get current usage snapshot for a tenant.
 }
 ```
 
----
+## Strategy Notes
 
-## Observability
+- `IN_MEMORY`: simple per-instance memory store.
+- `CAFFEINE`: local cache-based limits (default).
+- `REDIS`: shared limits across instances; requires Redis connection (`spring.data.redis.*`).
 
-### Metrics (Micrometer)
-
-| Metric | Tags | Description |
-|---|---|---|
-| `ai.requests.total` | `tenantId`, `model`, `outcome` | Total LLM requests |
-| `ai.request.latency` | `tenantId`, `model` | Request latency histogram |
-| `ai.requests.rejected` | `tenantId`, `reason` | Rejected requests |
-
-Expose via Actuator:
-
-```properties
-management.endpoints.web.exposure.include=health,metrics
-```
-
-Then query:
-
-```
-GET /actuator/metrics/ai.requests.total
-GET /actuator/metrics/ai.request.latency
-GET /actuator/metrics/ai.requests.rejected
-```
-
-### Structured Logs
-
-Every request emits a structured log line:
-
-```
-INFO TenantAwareAiService - ai_chat tenantId=acme teamId=engineering model=gpt-4o-mini estimatedTokens=11 latencyMs=1673 outcome=success
-```
-
----
-
-## Architecture
-
-```
-HTTP Request
-    │
-    ▼
-TenantResolverFilter       (resolves tenantId + teamId from headers/JWT)
-    │
-    ▼
-AiGatewayController        (validates tenant context)
-    │
-    ▼
-InMemoryTenantRateLimiter  (checks req/min + tokens/day limits)
-    │
-    ├── 429 → TenantMetricsRecorder (records rejection metric)
-    │
-    ▼
-TenantAwareAiService       (calls Spring AI ChatClient)
-    │
-    ▼
-TenantMetricsRecorder      (records latency + request metrics)
-    │
-    ▼
-Structured log + response
-```
-
----
-
-## Roadmap
-
-- [ ] JWT-based tenant resolution
-- [ ] Redis-backed rate limiting for multi-instance deployments
-- [ ] Cost-based quotas ($ per day per tenant)
-- [ ] Per-tenant model restrictions
-- [ ] Separate `-starter` and `-example` Maven modules
-- [ ] Spring Boot autoconfiguration packaging
-
----
-
-## Running Locally
+## Run
 
 ```bash
-git clone https://github.com/evancaplan/spring-ai-tenant-gateway.git
-cd spring-ai-tenant-gateway
-export OPENAI_API_KEY=your_key_here
 ./mvnw spring-boot:run
 ```
 
----
+## Test
 
-## Contributing
+```bash
+./mvnw test
+```
 
-PRs welcome. Open an issue first for large changes.
+Notes:
 
----
+- Redis integration tests use Testcontainers and are skipped when Docker is unavailable.
+- Other unit/integration tests still run without Docker.
 
 ## License
 
