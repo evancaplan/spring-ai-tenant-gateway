@@ -42,6 +42,24 @@ GET http://localhost:8080/actuator/metrics/ai.requests.rejected
 ### acme gets 20 req/min (overridden)
 GET http://localhost:8080/api/v1/tenants/acme/usage
 
-###
 ### trial gets only 3 req/min
 GET http://localhost:8080/api/v1/tenants/trial/usage
+
+### get a token from local auth server
+POST http://localhost:8080/oauth2/token
+Authorization: Basic dGVuYW50LWdhdGV3YXktY2xpZW50OnNlY3JldA==
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=client_credentials
+
+### use token to call chat endpoint
+POST http://localhost:8080/api/v1/ai/chat
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "messages": [
+    { "role": "user", "content": "Say hello" }
+  ],
+  "model": "gpt-4o-mini"
+}

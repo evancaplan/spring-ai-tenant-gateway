@@ -1,7 +1,6 @@
 package dev.evancaplan.spring_ai_tenant_gateway.ai;
 
 import dev.evancaplan.spring_ai_tenant_gateway.tenant.TenantContext;
-import dev.evancaplan.spring_ai_tenant_gateway.tenant.TenantMetricsRecorder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
@@ -13,20 +12,23 @@ import java.util.List;
 @Service
 public class TenantAwareAiService {
     private static final Logger log = LoggerFactory.getLogger(TenantAwareAiService.class);
+    private static final String UNKNOWN = "unknown";
 
     private final ChatClient chatClient;
 
-    private final TenantMetricsRecorder metricsRecorder;
-
-    public TenantAwareAiService(ChatClient.Builder builder, TenantMetricsRecorder metricsRecorder) {
+    public TenantAwareAiService(ChatClient.Builder builder) {
         this.chatClient = builder.build();
-        this.metricsRecorder = metricsRecorder;
     }
 
     public AiResponse chat(TenantContext context, List<Message> messages, int estimatedTokens) {
+        TenantContext resolvedContext = resolveContext(context);
+        String tenantId = resolvedContext != null ? resolvedContext.tenantId() : UNKNOWN;
+        String teamId = resolvedContext != null ? resolvedContext.teamId() : UNKNOWN;
+
         long start = System.currentTimeMillis();
+        long latencyMs;
         String outcome = "success";
-        String content = null;
+        String content;
 
         try {
             content = chatClient.prompt()
@@ -35,13 +37,13 @@ public class TenantAwareAiService {
                     .content();
         } catch (Exception e) {
             outcome = "error";
-            log.error("LLM call failed for tenant={} error={}", context.tenantId(), e.getMessage());
+            log.error("LLM call failed for tenant={} error={}", tenantId, e.getMessage());
             throw e;
         } finally {
-            long latencyMs = System.currentTimeMillis() - start;
+            latencyMs = System.currentTimeMillis() - start;
             ChatLogEntry entry = new ChatLogEntry(
-                    context.tenantId(),
-                    context.teamId(),
+                    tenantId,
+                    teamId,
                     "gpt-4o-mini",
                     estimatedTokens,
                     latencyMs,
@@ -55,17 +57,16 @@ public class TenantAwareAiService {
                     entry.latencyMs(),
                     entry.outcome()
             );
-
-            metricsRecorder.recordRequest(
-                    context.tenantId(),
-                    "gpt-4o-mini",
-                    latencyMs,
-                    outcome
-            );
         }
 
-        return new AiResponse(content, context.tenantId(), System.currentTimeMillis() - start);
+        return new AiResponse(content, tenantId, latencyMs);
     }
 
+    private TenantContext resolveContext(TenantContext context) {
+        if (context != null) {
+            return context;
+        }
+        return dev.evancaplan.spring_ai_tenant_gateway.tenant.TenantContextHolder.get();
+    }
 
 }

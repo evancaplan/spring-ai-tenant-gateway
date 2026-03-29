@@ -1,5 +1,7 @@
 package dev.evancaplan.spring_ai_tenant_gateway.config;
 
+import dev.evancaplan.spring_ai_tenant_gateway.ratelimit.RateLimitStrategy;
+import dev.evancaplan.spring_ai_tenant_gateway.tenant.AuthType;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.util.HashMap;
@@ -9,6 +11,16 @@ import java.util.Map;
 public class TenantGatewayConfigurationProperties {
     private int defaultMaxRequestsPerMinute = 10;
     private int defaultMaxTokensPerDay = 100_000;
+
+    private String tenantIdJwtClaim = "tenant_id";
+    private String teamIdJwtClaim = "team_id";
+
+    private String tenantIdHeader = "X-Tenant-Id";
+    private String teamIdHeader = "X-Team-Id";
+
+    private AuthType authType = AuthType.HEADER;
+    private RateLimitStrategy rateLimitStrategy = RateLimitStrategy.CAFFEINE;
+
     private Map<String, TenantLimits> tenants = new HashMap<>();
 
     public int getDefaultMaxRequestsPerMinute() {
@@ -35,11 +47,51 @@ public class TenantGatewayConfigurationProperties {
         this.tenants = tenants;
     }
 
+    public String getTenantIdJwtClaim() {
+        return tenantIdJwtClaim;
+    }
+    public void setTenantIdJwtClaim(String v) { this.tenantIdJwtClaim = v; }
+
+    public String getTeamIdJwtClaim() { return teamIdJwtClaim; }
+    public void setTeamIdJwtClaim(String v) { this.teamIdJwtClaim = v; }
+
     public TenantLimits limitsFor(String tenantId) {
         return tenants.getOrDefault(tenantId, new TenantLimits(
                 defaultMaxRequestsPerMinute,
                 defaultMaxTokensPerDay
         ));
+    }
+
+    public AuthType getAuthType() {
+        return authType;
+    }
+
+    public void setAuthType(AuthType authType) {
+        this.authType = authType;
+    }
+
+    public String getTenantIdHeader() {
+        return tenantIdHeader;
+    }
+
+    public void setTenantIdHeader(String tenantIdHeader) {
+        this.tenantIdHeader = tenantIdHeader;
+    }
+
+    public String getTeamIdHeader() {
+        return teamIdHeader;
+    }
+
+    public void setTeamIdHeader(String teamIdHeader) {
+        this.teamIdHeader = teamIdHeader;
+    }
+
+    public RateLimitStrategy getRateLimitStrategy() {
+        return rateLimitStrategy;
+    }
+
+    public void setRateLimitStrategy(RateLimitStrategy rateLimitStrategy) {
+        this.rateLimitStrategy = rateLimitStrategy;
     }
 
     public static class TenantLimits {
